@@ -1,0 +1,266 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Seam Carving Visualizer</title>
+<style>
+  :root { --bg:#f6f7f9; --card:#fff; --fg:#1d2330; --muted:#667085; --line:#dde1e8; --accent:#2f6fed; --seam:#ff2d55; }
+  @media (prefers-color-scheme: dark) {
+    :root { --bg:#12151c; --card:#1b202b; --fg:#e8ebf2; --muted:#94a0b4; --line:#2c3444; --accent:#6b9bff; }
+  }
+  * { box-sizing:border-box; }
+  body { margin:0; padding:20px 16px; background:var(--bg); color:var(--fg); font:15px/1.45 system-ui,sans-serif; }
+  main { max-width:1100px; margin:0 auto; }
+  h1 { font-size:22px; margin:0 0 4px; }
+  p.sub { margin:0 0 16px; color:var(--muted); }
+  .card { background:var(--card); border:1px solid var(--line); border-radius:10px; padding:14px; margin-bottom:16px; }
+  .controls { display:grid; grid-template-columns:repeat(auto-fit,minmax(200px,1fr)); gap:12px; align-items:end; }
+  label { display:block; font-size:12px; color:var(--muted); margin-bottom:4px; }
+  select, input[type=file], input[type=number] { width:100%; padding:7px; border:1px solid var(--line); border-radius:6px; background:var(--bg); color:var(--fg); font:inherit; }
+  input[type=range] { width:100%; }
+  button { padding:8px 14px; border:1px solid var(--line); border-radius:6px; background:var(--card); color:var(--fg); font:inherit; cursor:pointer; }
+  button.primary { background:var(--accent); border-color:var(--accent); color:#fff; }
+  button:disabled { opacity:.5; cursor:default; }
+  .row { display:flex; gap:8px; flex-wrap:wrap; margin-top:12px; align-items:center; }
+  .status { color:var(--muted); font-size:13px; margin-left:auto; }
+  .status.err { color:#d92d20; }
+  .views { display:grid; grid-template-columns:repeat(auto-fit,minmax(300px,1fr)); gap:16px; }
+  .view h2 { font-size:13px; margin:0 0 8px; color:var(--muted); font-weight:600; }
+  .stage { background:repeating-conic-gradient(#8883 0 25%, transparent 0 50%) 0 0/16px 16px; border-radius:6px; overflow:auto; line-height:0; }
+  canvas { max-width:100%; height:auto; image-rendering:pixelated; }
+  .note { font-size:12px; color:var(--muted); margin-top:8px; }
+</style>
+</head>
+<body>
+<main>
+  <h1>Seam Carving Visualizer</h1>
+  <p class="sub">Pick a method and an image, then watch each vertical seam get found and removed.</p>
+
+  <div class="card">
+    <div class="controls">
+      <div>
+        <label for="method">Method</label>
+        <select id="method">
+          <option value="original">Original seam carving (reference)</option>
+          <option value="dp">Dynamic programming</option>
+          <option value="greedy">Greedy</option>
+          <option value="graphcut">Graph cut</option>
+        </select>
+      </div>
+      <div>
+        <label for="sample">Sample image (images/ folder)</label>
+        <select id="sample"></select>
+      </div>
+      <div>
+        <label for="upload">…or upload an image</label>
+        <input id="upload" type="file" accept="image/*">
+      </div>
+      <div>
+        <label for="maxw">Max working width (px): <span id="maxwv"></span></label>
+        <input id="maxw" type="range" min="100" max="800" step="20" value="400">
+      </div>
+      <div>
+        <label for="count">Seams to remove: <span id="countv"></span></label>
+        <input id="count" type="range" min="1" max="100" value="50">
+      </div>
+      <div>
+        <label for="speed">Animation speed: <span id="speedv"></span></label>
+        <input id="speed" type="range" min="1" max="60" value="12">
+      </div>
+    </div>
+    <div class="row">
+      <button id="run" class="primary">Run</button>
+      <button id="pause" disabled>Pause</button>
+      <button id="step" disabled>Step</button>
+      <button id="reset" disabled>Reset</button>
+      <span id="status" class="status">Loading…</span>
+    </div>
+  </div>
+
+  <div class="views">
+    <div class="card view">
+      <h2>Current image — seam about to be removed</h2>
+      <div class="stage"><canvas id="cur"></canvas></div>
+    </div>
+    <div class="card view">
+      <h2>Original image — all seams found so far</h2>
+      <div class="stage"><canvas id="orig"></canvas></div>
+    </div>
+  </div>
+  <p class="note">Computation runs in the C++ backend (<code>./seamcarve</code>); this page only animates the seams it returns.</p>
+</main>
+
+<script>
+const $ = id => document.getElementById(id);
+const cur = $('cur'), orig = $('orig'), cctx = cur.getContext('2d'), octx = orig.getContext('2d');
+
+let src = null;          // {w,h,data:Uint8ClampedArray RGBA} working-size source image
+let seams = [];          // seams returned by backend
+let cols = [];           // per row: original x of each remaining pixel
+let step = 0, timer = null, busy = false;
+
+function status(msg, err) { $('status').textContent = msg; $('status').classList.toggle('err', !!err); }
+
+function bindSlider(id, out, fmt = v => v) {
+  const el = $(id), o = $(out);
+  const upd = () => o.textContent = fmt(el.value);
+  el.addEventListener('input', upd); upd();
+}
+bindSlider('maxw', 'maxwv'); bindSlider('count', 'countv'); bindSlider('speed', 'speedv', v => v + ' seams/s');
+
+// ---------- image loading ----------
+function loadFromUrl(url) {
+  return new Promise((res, rej) => {
+    const img = new Image();
+    img.onload = () => res(img);
+    img.onerror = () => rej(new Error('Could not load image'));
+    img.src = url;
+  });
+}
+
+async function setImage(img) {
+  const maxw = +$('maxw').value;
+  const scale = Math.min(1, maxw / img.naturalWidth);
+  const w = Math.max(2, Math.round(img.naturalWidth * scale)), h = Math.max(1, Math.round(img.naturalHeight * scale));
+  const c = document.createElement('canvas'); c.width = w; c.height = h;
+  const ctx = c.getContext('2d'); ctx.drawImage(img, 0, 0, w, h);
+  src = { w, h, data: ctx.getImageData(0, 0, w, h).data, img };
+  $('count').max = Math.max(1, w - 2);
+  if (+$('count').value > w - 2) $('count').value = w - 2;
+  $('count').dispatchEvent(new Event('input'));
+  resetView();
+  status(`Image ready: ${w}×${h}`);
+}
+
+async function loadSample() {
+  const name = $('sample').value;
+  if (!name) return;
+  try { await setImage(await loadFromUrl('/images/' + encodeURIComponent(name))); }
+  catch (e) { status(e.message, true); }
+}
+
+async function init() {
+  try {
+    const list = await (await fetch('/api/images')).json();
+    $('sample').innerHTML = list.length
+      ? list.map(n => `<option>${n}</option>`).join('')
+      : '<option value="">(no images in images/)</option>';
+    if (list.length) await loadSample(); else status('Put images in the images/ folder or upload one.');
+  } catch (e) { status('Backend not reachable — start ./seamcarve', true); }
+}
+
+$('sample').addEventListener('change', loadSample);
+$('maxw').addEventListener('change', () => src && setImage(src.img));
+$('upload').addEventListener('change', async e => {
+  const f = e.target.files[0]; if (!f) return;
+  const url = URL.createObjectURL(f);
+  try { await setImage(await loadFromUrl(url)); } catch (err) { status(err.message, true); }
+});
+
+// ---------- drawing ----------
+function renderOriginal(markUpTo) {
+  const id = new ImageData(new Uint8ClampedArray(src.data), src.w, src.h);
+  // Re-derive original-coordinate positions of seams 0..markUpTo-1.
+  const c = Array.from({ length: src.h }, () => Array.from({ length: src.w }, (_, x) => x));
+  for (let i = 0; i < markUpTo; i++) {
+    for (let y = 0; y < src.h; y++) {
+      const x = c[y][seams[i][y]];
+      const o = (y * src.w + x) * 4;
+      id.data[o] = 255; id.data[o + 1] = 45; id.data[o + 2] = 85;
+      c[y].splice(seams[i][y], 1);
+    }
+  }
+  octx.putImageData(id, 0, 0);
+}
+
+function renderCurrent(highlight) {
+  const w = cols[0].length, h = src.h;
+  cur.width = w; cur.height = h;
+  const id = cctx.createImageData(w, h);
+  for (let y = 0; y < h; y++) {
+    for (let x = 0; x < w; x++) {
+      const s = (y * src.w + cols[y][x]) * 4, d = (y * w + x) * 4;
+      id.data[d] = src.data[s]; id.data[d + 1] = src.data[s + 1]; id.data[d + 2] = src.data[s + 2]; id.data[d + 3] = 255;
+    }
+    if (highlight) {
+      const d = (y * w + highlight[y]) * 4;
+      id.data[d] = 255; id.data[d + 1] = 45; id.data[d + 2] = 85;
+    }
+  }
+  cctx.putImageData(id, 0, 0);
+}
+
+function resetView() {
+  stop();
+  seams = []; step = 0;
+  cols = Array.from({ length: src.h }, () => Array.from({ length: src.w }, (_, x) => x));
+  orig.width = src.w; orig.height = src.h;
+  cur.width = src.w; cur.height = src.h;
+  octx.putImageData(new ImageData(new Uint8ClampedArray(src.data), src.w, src.h), 0, 0);
+  renderCurrent(null);
+  ['pause', 'step', 'reset'].forEach(b => $(b).disabled = true);
+}
+
+// ---------- animation ----------
+// Phase A: show the seam highlighted. Phase B (next tick): remove it.
+let highlighting = false;
+
+function advance() {
+  if (step >= seams.length) { finish(); return; }
+  if (!highlighting) {
+    renderCurrent(seams[step]);
+    renderOriginal(step + 1);
+    highlighting = true;
+    status(`Seam ${step + 1} / ${seams.length} found`);
+  } else {
+    for (let y = 0; y < src.h; y++) cols[y].splice(seams[step][y], 1);
+    step++;
+    highlighting = false;
+    renderCurrent(null);
+    if (step >= seams.length) finish();
+  }
+}
+
+function finish() { stop(); status(`Done — ${src.w}×${src.h} → ${cols[0].length}×${src.h}`); $('pause').disabled = true; $('step').disabled = true; }
+
+function play() {
+  stop();
+  const delay = 1000 / (+$('speed').value * 2);   // two ticks (show, remove) per seam
+  timer = setInterval(advance, delay);
+  $('pause').textContent = 'Pause';
+}
+function stop() { if (timer) clearInterval(timer); timer = null; }
+
+$('speed').addEventListener('input', () => { if (timer) play(); });
+$('pause').addEventListener('click', () => {
+  if (timer) { stop(); $('pause').textContent = 'Resume'; } else { play(); }
+});
+$('step').addEventListener('click', () => { stop(); $('pause').textContent = 'Resume'; advance(); });
+$('reset').addEventListener('click', () => { resetView(); status('Reset'); });
+
+// ---------- run ----------
+$('run').addEventListener('click', async () => {
+  if (!src || busy) return;
+  busy = true; $('run').disabled = true;
+  resetView();
+  highlighting = false;
+  status('Computing seams in C++ backend…');
+  const rgb = new Uint8Array(src.w * src.h * 3);
+  for (let i = 0, j = 0; i < src.data.length; i += 4) { rgb[j++] = src.data[i]; rgb[j++] = src.data[i + 1]; rgb[j++] = src.data[i + 2]; }
+  try {
+    const q = new URLSearchParams({ method: $('method').value, w: src.w, h: src.h, count: $('count').value });
+    const r = await fetch('/api/carve?' + q, { method: 'POST', body: rgb });
+    const j = await r.json();
+    if (!r.ok) throw new Error(j.error || 'Backend error');
+    seams = j.seams;
+    ['pause', 'step', 'reset'].forEach(b => $(b).disabled = false);
+    play();
+  } catch (e) { status(e.message, true); }
+  busy = false; $('run').disabled = false;
+});
+
+init();
+</script>
+</body>
+</html>
