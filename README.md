@@ -14,6 +14,13 @@ Modes:
 
 ### Build and run
 
+**Windows (Visual Studio installed, any terminal):**
+
+```
+.\build.bat test
+.\build\greedy_carve.exe images\castle.jpg --width 1100 --height 700
+```
+
 **With make (g++ / clang, Linux / macOS / MSYS2):**
 
 ```
