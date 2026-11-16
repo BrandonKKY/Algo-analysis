@@ -14,6 +14,7 @@
 #include <iostream>
 #include <map>
 #include <sstream>
+#include <thread>
 
 #include "seam_methods.h"
 
@@ -88,7 +89,7 @@ bool readRequest(int fd, Request& req) {
 
 void respond(int fd, int status, const std::string& type, const std::string& body) {
     const char* text = status == 200 ? "OK" : status == 400 ? "Bad Request" : status == 404 ? "Not Found"
-                       : status == 501 ? "Not Implemented" : "Error";
+                       : status == 409 ? "Conflict" : status == 501 ? "Not Implemented" : "Error";
     std::ostringstream h;
     h << "HTTP/1.1 " << status << ' ' << text << "\r\nContent-Type: " << type
       << "\r\nContent-Length: " << body.size() << "\r\nConnection: close\r\n\r\n";
@@ -164,7 +165,7 @@ void handleCarve(int fd, const Request& req) {
     Image img(w, h, std::vector<uint8_t>(req.body.begin(), req.body.end()));
     std::vector<Seam> seams;
     std::string err;
-    if (!carve(img, finder, count, seams, err)) return fail(501, err);
+    if (!carve(img, finder, count, seams, err)) return fail(err == "stopped" ? 409 : 501, err);
 
     std::string j = "{\"seams\":[";
     for (size_t i = 0; i < seams.size(); ++i) {
@@ -184,6 +185,10 @@ void handle(int fd, const std::string& root) {
     if (req.method == "GET" && req.path == "/api/images") return listImages(fd, root);
     if (req.method == "GET" && req.path.rfind("/images/", 0) == 0) return serveFile(fd, root + req.path);
     if (req.method == "POST" && req.path == "/api/carve") return handleCarve(fd, req);
+    if (req.method == "POST" && req.path == "/api/stop") {
+        stopAll();
+        return respond(fd, 200, "application/json", "{\"stopped\":true}");
+    }
     respond(fd, 404, "text/plain", "not found");
 }
 
@@ -205,7 +210,10 @@ int runServer(int port, const std::string& root) {
     for (;;) {
         int fd = accept(srv, nullptr, nullptr);
         if (fd < 0) continue;
-        handle(fd, root);
-        close(fd);
+        // One thread per request, so /api/stop is answered while a carve runs.
+        std::thread([fd, root] {
+            handle(fd, root);
+            close(fd);
+        }).detach();
     }
 }

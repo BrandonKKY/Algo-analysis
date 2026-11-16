@@ -32,16 +32,16 @@ void check(bool ok, const std::string& what) {
 }
 
 double seamCost(const Image& img, const Seam& seam) {
-    const std::vector<double> e = computeEnergy(img);
+    const Grid<double> e = sobelEnergy(img);
     double total = 0;
-    for (int y = 0; y < img.height; ++y) total += e[static_cast<size_t>(y) * img.width + seam[y]];
+    for (int y = 0; y < img.h; ++y) total += e(y, seam[y]);
     return total;
 }
 
 bool isValidSeam(const Image& img, const Seam& seam) {
-    if (static_cast<int>(seam.size()) != img.height) return false;
-    for (int y = 0; y < img.height; ++y) {
-        if (seam[y] < 0 || seam[y] >= img.width) return false;
+    if (static_cast<int>(seam.size()) != img.h) return false;
+    for (int y = 0; y < img.h; ++y) {
+        if (seam[y] < 0 || seam[y] >= img.w) return false;
         if (y > 0 && std::abs(seam[y] - seam[y - 1]) > 1) return false;
     }
     return true;
@@ -73,16 +73,16 @@ Image smoothImage(int w, int h) {
 
 // Cost of the cheapest vertical seam that stays in columns 0..w-2 (plain DP).
 double bestCostWithoutLastColumn(const Image& img) {
-    const int w = img.width, h = img.height, cols = w - 1;
-    const std::vector<double> e = computeEnergy(img);
+    const int w = img.w, h = img.h, cols = w - 1;
+    const Grid<double> e = sobelEnergy(img);
     std::vector<double> prev(cols), cur(cols);
-    for (int x = 0; x < cols; ++x) prev[x] = e[x];
+    for (int x = 0; x < cols; ++x) prev[x] = e(0, x);
     for (int y = 1; y < h; ++y) {
         for (int x = 0; x < cols; ++x) {
             double best = prev[x];
             if (x > 0) best = std::min(best, prev[x - 1]);
             if (x + 1 < cols) best = std::min(best, prev[x + 1]);
-            cur[x] = e[static_cast<size_t>(y) * w + x] + best;
+            cur[x] = e(y, x) + best;
         }
         prev.swap(cur);
     }
@@ -111,17 +111,17 @@ void compareHorizontal(const Image& img, const std::string& name) {
     std::string err;
     check(findHorizontalSeamGraphcut(img, gc, err), name + ": horizontal graph cut failed: " + err);
     if (gc.empty()) return;
-    bool valid = static_cast<int>(gc.size()) == img.width;
-    for (int x = 0; valid && x < img.width; ++x) {
-        if (gc[x] < 0 || gc[x] >= img.height) valid = false;
+    bool valid = static_cast<int>(gc.size()) == img.w;
+    for (int x = 0; valid && x < img.w; ++x) {
+        if (gc[x] < 0 || gc[x] >= img.h) valid = false;
         if (x > 0 && std::abs(gc[x] - gc[x - 1]) > 1) valid = false;
     }
     check(valid, name + ": horizontal seam is not a connected seam");
     if (!valid) return;
     // Cost measured directly on the un-transposed image.
-    const std::vector<double> e = computeEnergy(img);
+    const Grid<double> e = sobelEnergy(img);
     double got = 0;
-    for (int x = 0; x < img.width; ++x) got += e[static_cast<size_t>(gc[x]) * img.width + x];
+    for (int x = 0; x < img.w; ++x) got += e(gc[x], x);
     const double want = bestCostWithoutLastColumn(transposeImage(img));
     check(std::fabs(want - got) < 1e-6,
           name + ": horizontal cost differs, DP=" + std::to_string(want) + " graphcut=" + std::to_string(got));
@@ -167,7 +167,7 @@ int main() {
             if (!findSeamGraphcut(cur, gc, err)) break;
             cur = removeSeam(cur, gc);
         }
-        check(cur.width == 20, "expected width 20 after removing 40 seams");
+        check(cur.w == 20, "expected width 20 after removing 40 seams");
     }
 
     std::printf("  graph cut cost was higher than unrestricted DP on %d of %d images\n", worseThanFullDp, comparisons);
@@ -190,7 +190,7 @@ int main() {
             if (!findHorizontalSeamGraphcut(cur, gc, err)) break;
             cur = transposeImage(removeSeam(transposeImage(cur), gc));
         }
-        check(cur.width == 50 && cur.height == 25, "expected 50x25 after removing 15 horizontal seams");
+        check(cur.w == 50 && cur.h == 25, "expected 50x25 after removing 15 horizontal seams");
         check(!findHorizontalSeamGraphcut(Image(5, 1, std::vector<uint8_t>(15, 0)), s, err), "height-1 image must be rejected");
     }
 

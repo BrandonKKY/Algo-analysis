@@ -5,6 +5,7 @@
 #include <cstdint>
 #include <string>
 #include <vector>
+#include <utility>
 
 // Row-major 2-D array, e.g. an energy map (Grid<double>) or an index map (Grid<int>).
 template <typename T>
@@ -26,6 +27,7 @@ struct Image {
 
     Image() = default;
     Image(int w_, int h_) : w(w_), h(h_), px(std::size_t(w_) * h_ * 3, 0) {}
+    Image(int w_, int h_, std::vector<std::uint8_t> data) : w(w_), h(h_), px(std::move(data)) {}
 
     std::uint8_t* at(int r, int c) { return &px[(std::size_t(r) * w + c) * 3]; }
     const std::uint8_t* at(int r, int c) const { return &px[(std::size_t(r) * w + c) * 3]; }

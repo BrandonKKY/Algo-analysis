@@ -9,7 +9,7 @@ bool findSeamGreedy(const Image& img, Seam& seam, std::string& error);
 bool findSeamGraphcut(const Image& img, Seam& seam, std::string& error);
 
 // Graph cut, horizontal seams: the same method run on the transposed image.
-// seam[x] is the row removed from column x (seam.size() == img.width).
+// seam[x] is the row removed from column x (seam.size() == img.w).
 Image transposeImage(const Image& img);
 bool findHorizontalSeamGraphcut(const Image& img, Seam& seam, std::string& error);
 

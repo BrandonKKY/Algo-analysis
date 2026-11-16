@@ -71,6 +71,7 @@
     </div>
     <div class="row">
       <button id="run" class="primary">Run</button>
+      <button id="halt" disabled title="Stop the backend calculation and the animation">Stop</button>
       <button id="pause" disabled>Pause</button>
       <button id="step" disabled>Step</button>
       <button id="reset" disabled>Reset</button>
@@ -99,6 +100,8 @@ let src = null;          // {w,h,data:Uint8ClampedArray RGBA} working-size sourc
 let seams = [];          // seams returned by backend
 let cols = [];           // per row: original x of each remaining pixel
 let step = 0, timer = null, busy = false;
+let request = null;      // AbortController of the /api/carve call in flight
+let stopping = Promise.resolve();  // the last /api/stop call; Run waits for it
 
 function status(msg, err) { $('status').textContent = msg; $('status').classList.toggle('err', !!err); }
 
@@ -199,7 +202,7 @@ function resetView() {
   cur.width = src.w; cur.height = src.h;
   octx.putImageData(new ImageData(new Uint8ClampedArray(src.data), src.w, src.h), 0, 0);
   renderCurrent(null);
-  ['pause', 'step', 'reset'].forEach(b => $(b).disabled = true);
+  ['pause', 'step', 'reset', 'halt'].forEach(b => $(b).disabled = true);
 }
 
 // ---------- animation ----------
@@ -222,7 +225,7 @@ function advance() {
   }
 }
 
-function finish() { stop(); status(`Done — ${src.w}×${src.h} → ${cols[0].length}×${src.h}`); $('pause').disabled = true; $('step').disabled = true; }
+function finish() { stop(); status(`Done — ${src.w}×${src.h} → ${cols[0].length}×${src.h}`); $('pause').disabled = true; $('step').disabled = true; $('halt').disabled = true; }
 
 function play() {
   stop();
@@ -239,24 +242,43 @@ $('pause').addEventListener('click', () => {
 $('step').addEventListener('click', () => { stop(); $('pause').textContent = 'Resume'; advance(); });
 $('reset').addEventListener('click', () => { resetView(); status('Reset'); });
 
+// Stop: cancel the C++ calculation (it keeps running after a fetch is
+// aborted, so the server is told directly) and freeze the animation.
+$('halt').addEventListener('click', () => {
+  const computing = busy;
+  if (request) request.abort();
+  stopping = fetch('/api/stop', { method: 'POST' }).catch(() => {});
+  stop();
+  $('halt').disabled = true; $('pause').disabled = true; $('step').disabled = true;
+  $('reset').disabled = false;
+  status(computing ? 'Stopped — calculation cancelled' : `Stopped after ${step} of ${seams.length} seams`);
+});
+
 // ---------- run ----------
 $('run').addEventListener('click', async () => {
   if (!src || busy) return;
   busy = true; $('run').disabled = true;
+  await stopping;  // otherwise a late stop could cancel this new run
   resetView();
+  $('halt').disabled = false;
   highlighting = false;
   status('Computing seams in C++ backend…');
   const rgb = new Uint8Array(src.w * src.h * 3);
   for (let i = 0, j = 0; i < src.data.length; i += 4) { rgb[j++] = src.data[i]; rgb[j++] = src.data[i + 1]; rgb[j++] = src.data[i + 2]; }
   try {
     const q = new URLSearchParams({ method: $('method').value, w: src.w, h: src.h, count: $('count').value });
-    const r = await fetch('/api/carve?' + q, { method: 'POST', body: rgb });
+    request = new AbortController();
+    const r = await fetch('/api/carve?' + q, { method: 'POST', body: rgb, signal: request.signal });
     const j = await r.json();
     if (!r.ok) throw new Error(j.error || 'Backend error');
     seams = j.seams;
     ['pause', 'step', 'reset'].forEach(b => $(b).disabled = false);
     play();
-  } catch (e) { status(e.message, true); }
+  } catch (e) {
+    // An abort comes from the Stop button, which already set the status.
+    if (e.name !== 'AbortError') { status(e.message, true); $('halt').disabled = true; }
+  }
+  request = null;
   busy = false; $('run').disabled = false;
 });
 

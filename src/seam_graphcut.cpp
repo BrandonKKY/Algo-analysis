@@ -43,7 +43,8 @@
 // MAX-FLOW ALGORITHM: Edmonds-Karp
 //   Repeat: BFS from S to T using only edges that still have capacity left
 //   (the "residual graph"). Push as much flow as the tightest edge on that
-//   path allows. Stop when BFS can no longer reach T.
+//   path allows. Stop when BFS can no longer reach T, or when stopAll() is
+//   called (one seam can take minutes on a large image).
 //   Time: O(V * E^2) worst case, with V = w*h nodes and E = about 4*w*h edges.
 
 namespace {
@@ -104,7 +105,7 @@ double maxFlow(Graph& g, int s, int t) {
     double flow = 0.0;
     std::vector<char> reached;
     std::vector<int> parentEdge;
-    while (bfs(g, s, t, reached, parentEdge)) {
+    while (!stopRequested() && bfs(g, s, t, reached, parentEdge)) {
         // Walk the path backwards from t to s to find its tightest edge.
         // edges[i ^ 1].to is the node that edge i starts from.
         double bottleneck = INF;
@@ -124,14 +125,14 @@ double maxFlow(Graph& g, int s, int t) {
 }  // namespace
 
 // Find ONE vertical seam of `img` and store the removed column of each row
-// in seam[y] (seam.size() == img.height, adjacent rows differ by at most 1).
+// in seam[y] (seam.size() == img.h, adjacent rows differ by at most 1).
 bool findSeamGraphcut(const Image& img, Seam& seam, std::string& error) {
-    const int w = img.width, h = img.height;
+    const int w = img.w, h = img.h;
     if (w < 2 || h < 1) {
         error = "image too small to carve";
         return false;
     }
-    const std::vector<double> e = computeEnergy(img);
+    const Grid<double> e = sobelEnergy(img);
 
     const int source = w * h, sink = w * h + 1;
     auto node = [w](int y, int x) { return y * w + x; };
@@ -141,7 +142,7 @@ bool findSeamGraphcut(const Image& img, Seam& seam, std::string& error) {
     for (int y = 0; y < h; ++y) {
         g.addEdge(source, node(y, 0), INF);
         for (int x = 0; x < w; ++x) {
-            const double energy = e[static_cast<size_t>(y) * w + x];
+            const double energy = e(y, x);
             if (x + 1 < w) {
                 g.addEdge(node(y, x), node(y, x + 1), energy);  // cost of removing (y, x)
                 g.addEdge(node(y, x + 1), node(y, x), INF);     // backward edge
@@ -155,6 +156,10 @@ bool findSeamGraphcut(const Image& img, Seam& seam, std::string& error) {
 
     // Step 2: run max-flow. The flow value equals the cost of the best seam.
     maxFlow(g, source, sink);
+    if (stopRequested()) {
+        error = "stopped";
+        return false;
+    }
 
     // Step 3: find the source side of the minimum cut = every node the source
     // can still reach in the residual graph.
@@ -173,23 +178,10 @@ bool findSeamGraphcut(const Image& img, Seam& seam, std::string& error) {
 }
 
 // Swaps rows and columns: pixel (x, y) of the result is pixel (y, x) of `img`.
-Image transposeImage(const Image& img) {
-    const int w = img.width, h = img.height;
-    std::vector<uint8_t> out(img.rgb.size());
-    for (int y = 0; y < h; ++y) {
-        for (int x = 0; x < w; ++x) {
-            const uint8_t* from = img.px(x, y);
-            uint8_t* to = &out[(static_cast<size_t>(x) * h + y) * 3];
-            to[0] = from[0];
-            to[1] = from[1];
-            to[2] = from[2];
-        }
-    }
-    return Image(h, w, std::move(out));  // new width = old height
-}
+Image transposeImage(const Image& img) { return transpose(img); }
 
 // Find ONE horizontal seam of `img`: seam[x] is the row removed from column x
-// (seam.size() == img.width, adjacent columns differ by at most 1).
+// (seam.size() == img.w, adjacent columns differ by at most 1).
 // A horizontal seam of the image is a vertical seam of the transposed image.
 bool findHorizontalSeamGraphcut(const Image& img, Seam& seam, std::string& error) {
     return findSeamGraphcut(transposeImage(img), seam, error);
