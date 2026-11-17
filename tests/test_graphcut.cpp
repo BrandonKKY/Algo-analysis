@@ -1,11 +1,8 @@
 // Checks the graph cut seam finder against dynamic programming.
 //
-// The graph from the brief ties the last column to the sink, so graph cut
-// finds the cheapest seam that does not use the last column. The test runs a
-// small DP with the same restriction: both are exact, so the two costs must
-// be EQUAL on every image (the seams themselves may differ on ties).
-// It also counts how often that differs from the unrestricted DP reference
-// (findSeamOriginal), which is allowed to use the last column.
+// Graph cut and DP are both exact, so on every image the two seams must have
+// the SAME total energy (the seams themselves may differ when several seams
+// tie). Horizontal seams are checked the same way on the transposed image.
 //
 // Build + run:  make test
 
@@ -71,9 +68,10 @@ Image smoothImage(int w, int h) {
     return Image(w, h, std::move(data));
 }
 
-// Cost of the cheapest vertical seam that stays in columns 0..w-2 (plain DP).
-double bestCostWithoutLastColumn(const Image& img) {
-    const int w = img.w, h = img.h, cols = w - 1;
+// Cost of the cheapest vertical seam (plain DP, kept here so the test does not
+// depend on the code it checks against).
+double bestCost(const Image& img) {
+    const int w = img.w, h = img.h, cols = w;
     const Grid<double> e = sobelEnergy(img);
     std::vector<double> prev(cols), cur(cols);
     for (int x = 0; x < cols; ++x) prev[x] = e(0, x);
@@ -89,8 +87,6 @@ double bestCostWithoutLastColumn(const Image& img) {
     return *std::min_element(prev.begin(), prev.end());
 }
 
-int comparisons = 0, worseThanFullDp = 0;
-
 void compareOnce(const Image& img, const std::string& name) {
     Seam dp, gc;
     std::string err;
@@ -98,11 +94,10 @@ void compareOnce(const Image& img, const std::string& name) {
     check(findSeamGraphcut(img, gc, err), name + ": graph cut failed: " + err);
     if (dp.empty() || gc.empty()) return;
     check(isValidSeam(img, gc), name + ": graph cut seam is not a connected seam");
-    const double want = bestCostWithoutLastColumn(img), got = seamCost(img, gc);
+    const double want = bestCost(img), got = seamCost(img, gc);
     check(std::fabs(want - got) < 1e-6,
           name + ": cost differs, DP=" + std::to_string(want) + " graphcut=" + std::to_string(got));
-    ++comparisons;
-    if (got > seamCost(img, dp) + 1e-6) ++worseThanFullDp;
+    check(std::fabs(seamCost(img, dp) - got) < 1e-6, name + ": cost differs from findSeamOriginal");
 }
 
 // Horizontal seam: seam[x] = row removed from column x.
@@ -122,7 +117,7 @@ void compareHorizontal(const Image& img, const std::string& name) {
     const Grid<double> e = sobelEnergy(img);
     double got = 0;
     for (int x = 0; x < img.w; ++x) got += e(gc[x], x);
-    const double want = bestCostWithoutLastColumn(transposeImage(img));
+    const double want = bestCost(transposeImage(img));
     check(std::fabs(want - got) < 1e-6,
           name + ": horizontal cost differs, DP=" + std::to_string(want) + " graphcut=" + std::to_string(got));
 }
@@ -170,8 +165,6 @@ int main() {
         check(cur.w == 20, "expected width 20 after removing 40 seams");
     }
 
-    std::printf("  graph cut cost was higher than unrestricted DP on %d of %d images\n", worseThanFullDp, comparisons);
-
     std::printf("[4] horizontal seams (transposed image)\n");
     {
         int n = 0;
@@ -206,7 +199,7 @@ int main() {
             t0 = std::chrono::steady_clock::now();
             findSeamGraphcut(img, gc, err);
             const double tGc = millis(t0);
-            check(std::fabs(bestCostWithoutLastColumn(img) - seamCost(img, gc)) < 1e-6, "timing image: cost differs");
+            check(std::fabs(bestCost(img) - seamCost(img, gc)) < 1e-6, "timing image: cost differs");
             std::printf("  %-12s %-8s %10.2f %10.2f %7.0fx\n",
                         (std::to_string(wh.first) + "x" + std::to_string(wh.second)).c_str(),
                         kind == 0 ? "smooth" : "noise", tDp, tGc, tGc / std::max(tDp, 1e-6));

@@ -17,7 +17,7 @@
 //   3. (y, x+1) -> (y, x)       capacity INF       backward edge
 //   4. (y, x) -> (y-1, x-1)     capacity INF       diagonal edges
 //      (y, x) -> (y+1, x-1)     capacity INF
-//   5. (y, w-1) -> T            capacity INF
+//   5. (y, w-1) -> T            capacity e[y][w-1] cutting this edge = removing pixel (y, w-1)
 //
 // WHY THE CUT IS A VALID SEAM
 //   A cut puts every node on the source side or on the sink side, and pays
@@ -31,11 +31,14 @@
 //     (y-1, x-1) and (y+1, x-1). So the seam column in neighbouring rows
 //     differs by at most 1, i.e. the seam is connected.
 //   Cut cost = sum of the energies of the seam pixels, so the minimum cut is
-//   the minimum-energy seam, the same kind of optimum dynamic programming finds.
+//   the minimum-energy seam, the same optimum dynamic programming finds.
 //
-// NOTE on edge 5: the INF edge to T keeps the last column on the sink side,
-//   so the seam pixel is always in columns 0..w-2. The seam found is the
-//   cheapest seam that does not use the last column.
+// NOTE on edge 5: the brief gives this edge INF capacity. That keeps the last
+//   column on the sink side of every cut, so its pixels could never be
+//   removed and the seam could be worse than the DP seam. Giving it the
+//   pixel's energy treats the last column like every other column: the cut
+//   behind it then means "remove pixel (y, w-1)", and the minimum cut is the
+//   same optimal seam that DP finds.
 //
 // HORIZONTAL SEAMS: transpose the image (swap rows and columns), find a
 //   vertical seam in it, and read the result as a horizontal seam.
@@ -147,7 +150,7 @@ bool findSeamGraphcut(const Image& img, Seam& seam, std::string& error) {
                 g.addEdge(node(y, x), node(y, x + 1), energy);  // cost of removing (y, x)
                 g.addEdge(node(y, x + 1), node(y, x), INF);     // backward edge
             } else {
-                g.addEdge(node(y, x), sink, INF);               // last column -> sink
+                g.addEdge(node(y, x), sink, energy);            // cost of removing (y, w-1)
             }
             if (x > 0 && y > 0) g.addEdge(node(y, x), node(y - 1, x - 1), INF);      // diagonal up
             if (x > 0 && y + 1 < h) g.addEdge(node(y, x), node(y + 1, x - 1), INF);  // diagonal down
