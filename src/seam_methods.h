@@ -5,6 +5,7 @@
 
 // Student-implemented methods (stubs until filled in).
 bool findSeamDp(const Image& img, Seam& seam, std::string& error);
+bool findHorizontalSeamDp(const Image& img, Seam& seam, std::string& error);
 bool findSeamGreedy(const Image& img, Seam& seam, std::string& error);
 bool findSeamGraphcut(const Image& img, Seam& seam, std::string& error);
 

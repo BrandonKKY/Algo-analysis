@@ -71,3 +71,65 @@ bool findSeamDp(const Image& img, Seam& seam, std::string& error) {
     return true;
 
 }
+
+// Horizontal seam finder (same DP, run left to right instead of top to bottom)
+// seam[x] = the row removed from column x (seam.size() == img.w)
+// M(y, x) = cost of the cheapest seam running from the left column to pixel (y, x)
+// Starting from the left column pixel, M(y, 0) = e(y, 0)
+// M(y, x) = e(y, x) + min( M(y-1, x-1), M(y, x-1), M(y+1, x-1) )
+// Skip any neighbour that falls outside the image: there's no y-1 when y == 0, and no y+1 when y == h-1.
+bool findHorizontalSeamDp(const Image& img, Seam& seam, std::string& error) {
+    const int w = img.w, h = img.h;
+    if (h < 2 || w < 1) { error = "image too small to carve"; return false;}
+    // Map e(y, x)
+    const Grid<double> e = sobelEnergy(img);
+
+    Grid<double> M(w,h);
+    // Copy the first column e(y,0)
+    for(int y = 0; y < h; ++y)
+    {
+        M(y,0) = e(y,0);
+    }
+
+    // Fill column by column, left to right
+    for(int x = 1; x < w; ++x)
+    {
+        for(int y = 0; y < h; ++y)
+        {
+            double best = M(y, x-1);
+            // Compare with upper neighbor M(y-1, x-1) if y > 0
+            if (y > 0) {
+                best = std::min(best, M(y-1, x-1));
+            }
+            // Compare with lower neighbor M(y+1, x-1) if y < h-1
+            if (y < h-1) {
+                best = std::min(best, M(y+1, x-1));
+            }
+            M(y,x) = e(y,x) + best;
+        }
+    }
+
+    // The cheapest full seam ends at the smallest value in the rightmost column
+    seam.assign(w,0);
+    int y = 0;
+    for(int i = 1; i < h; ++i)
+    {
+        y = M(i, w-1) < M(y, w-1) ? i : y;
+    }
+
+    // Start the seam at the rightmost column with the smallest cost found at y
+    seam[w-1] = y;
+
+    // After finding the seam with the smallest cost, backtrack leftwards
+    for (int x = w-2; x >= 0; --x)
+    {
+        int by = y;
+        // Check which neighbour to the left of the current pixel has the smallest M
+        if (y > 0 && M(y-1, x) < M(by, x)) by = y-1;
+        if (y < h-1 && M(y+1, x) < M(by, x)) by = y+1;
+        y = by;
+        seam[x] = y;
+    }
+
+    return true;
+}
