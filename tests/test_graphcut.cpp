@@ -1,3 +1,5 @@
+// This work was completed with the assistance of Claude Sonnet 5.5.
+
 // Checks the graph cut seam finder against dynamic programming.
 //
 // Graph cut and DP are both exact, so on every image the two seams must have

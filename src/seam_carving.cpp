@@ -1,3 +1,5 @@
+// This work was completed with the assistance of Claude Sonnet 5.5.
+
 #include "seam_carving.h"
 
 #include <algorithm>

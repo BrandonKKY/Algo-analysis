@@ -1,3 +1,5 @@
+// This work was completed with the assistance of Claude Sonnet 5.5.
+
 // Command-line tool for greedy seam carving.
 //
 //   greedy_carve <input> [--width W] [--height H] [--mode min|multistart] [--out-dir DIR]

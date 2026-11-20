@@ -1,3 +1,5 @@
+// This work was completed with the assistance of Claude Sonnet 5.5.
+
 // Basic image / 2-D grid types and image file I/O.
 #pragma once
 

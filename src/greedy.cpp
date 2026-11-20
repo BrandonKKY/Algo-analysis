@@ -1,3 +1,5 @@
+// This work was completed with the assistance of Claude Sonnet 5.5.
+
 #include "greedy.hpp"
 
 #include <chrono>

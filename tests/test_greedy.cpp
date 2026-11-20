@@ -1,3 +1,5 @@
+// This work was completed with the assistance of Claude Sonnet 5.5.
+
 // Minimal self-contained unit tests (no framework needed).
 #include <cmath>
 #include <cstdio>

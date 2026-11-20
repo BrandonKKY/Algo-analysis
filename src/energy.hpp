@@ -1,3 +1,5 @@
+// This work was completed with the assistance of Claude Sonnet 5.5.
+
 // Energy map: Sobel gradient magnitude.
 // Kept separate from the seam-finding code so every algorithm (greedy, DP,
 // graph cut) can be compared on exactly the same energy function.
