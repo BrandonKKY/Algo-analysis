@@ -9,7 +9,7 @@
 using Seam = std::vector<int>;
 
 // Finds ONE vertical seam in the given image. Returns false (and sets `error`)
-// if the method cannot do so (e.g. not implemented yet).
+// if the method cannot do so (e.g. the image is too small, or it was stopped).
 using SeamFinder = bool (*)(const Image&, Seam& seam, std::string& error);
 
 // Original seam carving (Avidan & Shamir, SIGGRAPH 2007): cumulative-cost

@@ -20,14 +20,18 @@
 
 namespace {
 
+// Largest request body accepted (the raw RGB bytes of the image), 64 MB.
 constexpr size_t kMaxBody = 64u * 1024 * 1024;
 
+// One parsed HTTP request: method ("GET"/"POST"), path, ?query values,
+// headers (names lower-cased) and the body.
 struct Request {
     std::string method, path;
     std::map<std::string, std::string> query, headers;
     std::string body;
 };
 
+// Turns URL text back into plain text: "%20" -> ' ', "+" -> ' '.
 std::string urlDecode(const std::string& s) {
     std::string o;
     for (size_t i = 0; i < s.size(); ++i) {
@@ -43,15 +47,19 @@ std::string urlDecode(const std::string& s) {
     return o;
 }
 
+// Reads one HTTP request from the socket into `req`.
+// Returns false if the connection closes early or the request is too large.
 bool readRequest(int fd, Request& req) {
     std::string buf;
     char tmp[8192];
     size_t headerEnd;
+    // 1. Read until the blank line that ends the headers.
     while ((headerEnd = buf.find("\r\n\r\n")) == std::string::npos) {
         ssize_t n = recv(fd, tmp, sizeof tmp, 0);
         if (n <= 0 || buf.size() > 65536) return false;
         buf.append(tmp, n);
     }
+    // 2. First line is "METHOD /path?query HTTP/1.1"; the rest are "Name: value" headers.
     std::istringstream hs(buf.substr(0, headerEnd));
     std::string line, target;
     std::getline(hs, line);
@@ -66,6 +74,7 @@ bool readRequest(int fd, Request& req) {
         std::transform(k.begin(), k.end(), k.begin(), ::tolower);
         req.headers[k] = v;
     }
+    // 3. Split "/path?a=1&b=2" into the path and the query values.
     size_t q = target.find('?');
     req.path = urlDecode(target.substr(0, q));
     if (q != std::string::npos) {
@@ -76,6 +85,7 @@ bool readRequest(int fd, Request& req) {
             if (e != std::string::npos) req.query[urlDecode(kv.substr(0, e))] = urlDecode(kv.substr(e + 1));
         }
     }
+    // 4. Read the body: Content-Length bytes, some of which may already be in `buf`.
     size_t len = req.headers.count("content-length") ? std::strtoull(req.headers["content-length"].c_str(), nullptr, 10) : 0;
     if (len > kMaxBody) return false;
     req.body = buf.substr(headerEnd + 4);
@@ -87,6 +97,7 @@ bool readRequest(int fd, Request& req) {
     return true;
 }
 
+// Sends an HTTP response with the given status code, content type and body.
 void respond(int fd, int status, const std::string& type, const std::string& body) {
     const char* text = status == 200 ? "OK" : status == 400 ? "Bad Request" : status == 404 ? "Not Found"
                        : status == 409 ? "Conflict" : status == 501 ? "Not Implemented" : "Error";
@@ -102,6 +113,7 @@ void respond(int fd, int status, const std::string& type, const std::string& bod
     }
 }
 
+// Makes text safe to put inside a JSON string: escapes " and \, drops control characters.
 std::string jsonEscape(const std::string& s) {
     std::string o;
     for (char c : s) {
@@ -111,6 +123,7 @@ std::string jsonEscape(const std::string& s) {
     return o;
 }
 
+// Content type to send for a file, chosen from its extension.
 std::string mimeFor(const std::string& p) {
     auto ends = [&](const char* e) { size_t n = std::strlen(e); return p.size() >= n && p.compare(p.size() - n, n, e) == 0; };
     if (ends(".html")) return "text/html; charset=utf-8";
@@ -122,6 +135,7 @@ std::string mimeFor(const std::string& p) {
     return "application/octet-stream";
 }
 
+// True if the file name ends in an image extension (case-insensitive).
 bool isImageName(const std::string& n) {
     std::string l = n;
     std::transform(l.begin(), l.end(), l.begin(), ::tolower);
@@ -130,6 +144,7 @@ bool isImageName(const std::string& n) {
     return false;
 }
 
+// Sends a file from disk (index.html or an image), or 404 if it does not exist.
 void serveFile(int fd, const std::string& path) {
     std::ifstream f(path, std::ios::binary);
     if (!f) return respond(fd, 404, "text/plain", "not found");
@@ -138,6 +153,8 @@ void serveFile(int fd, const std::string& path) {
     respond(fd, 200, mimeFor(path), ss.str());
 }
 
+// GET /api/images: sends the sorted names of the images in the images/ folder
+// as a JSON list, for the "Sample image" dropdown.
 void listImages(int fd, const std::string& root) {
     std::vector<std::string> names;
     if (DIR* d = opendir((root + "/images").c_str())) {
@@ -152,6 +169,8 @@ void listImages(int fd, const std::string& root) {
 }
 
 // POST /api/carve?method=<id>&w=<W>&h=<H>&count=<N>, body = raw RGB bytes.
+// Runs the chosen seam finder `count` times and replies with every seam as
+// JSON: {"seams":[[x for each row], ...]}. The page then animates them.
 void handleCarve(int fd, const Request& req) {
     auto get = [&](const char* k) { auto it = req.query.find(k); return it == req.query.end() ? std::string() : it->second; };
     int w = std::atoi(get("w").c_str()), h = std::atoi(get("h").c_str()), count = std::atoi(get("count").c_str());
@@ -165,8 +184,10 @@ void handleCarve(int fd, const Request& req) {
     Image img(w, h, std::vector<uint8_t>(req.body.begin(), req.body.end()));
     std::vector<Seam> seams;
     std::string err;
+    // 409 = the user pressed Stop; 501 = the method failed (e.g. image too small).
     if (!carve(img, finder, count, seams, err)) return fail(err == "stopped" ? 409 : 501, err);
 
+    // Build the JSON reply by hand: one array of column numbers per seam.
     std::string j = "{\"seams\":[";
     for (size_t i = 0; i < seams.size(); ++i) {
         j += i ? ",[" : "[";
@@ -176,9 +197,11 @@ void handleCarve(int fd, const Request& req) {
     respond(fd, 200, "application/json", j + "]}");
 }
 
+// Reads one request and sends it to the matching handler (a small router).
 void handle(int fd, const std::string& root) {
     Request req;
     if (!readRequest(fd, req)) return respond(fd, 400, "text/plain", "bad request");
+    // Refuse ".." so a request cannot read files outside the project folder.
     if (req.path.find("..") != std::string::npos) return respond(fd, 400, "text/plain", "bad path");
 
     if (req.method == "GET" && (req.path == "/" || req.path == "/index.html")) return serveFile(fd, root + "/index.html");
@@ -195,6 +218,7 @@ void handle(int fd, const std::string& root) {
 }  // namespace
 
 int runServer(int port, const std::string& root) {
+    // Open a TCP socket on 127.0.0.1:<port> (this computer only, not the network).
     int srv = socket(AF_INET, SOCK_STREAM, 0);
     int one = 1;
     setsockopt(srv, SOL_SOCKET, SO_REUSEADDR, &one, sizeof one);
@@ -207,6 +231,7 @@ int runServer(int port, const std::string& root) {
         return 1;
     }
     std::cout << "Seam carving UI: http://localhost:" << port << "/\n";
+    // Wait for connections forever (stop the program with Ctrl+C).
     for (;;) {
         int fd = accept(srv, nullptr, nullptr);
         if (fd < 0) continue;

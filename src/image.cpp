@@ -1,3 +1,7 @@
+// stb_image / stb_image_write are single-header libraries (third_party/) for
+// reading and writing image files. Defining these macros in exactly one .cpp
+// file compiles their code here. _CRT_SECURE_NO_WARNINGS silences MSVC warnings
+// about the C functions they use.
 #define _CRT_SECURE_NO_WARNINGS
 #define STB_IMAGE_IMPLEMENTATION
 #define STB_IMAGE_WRITE_IMPLEMENTATION

@@ -25,9 +25,15 @@ bool findSeamOriginal(const Image& img, Seam& seam, std::string& error) {
         return false;
     }
     const Grid<double> e = sobelEnergy(img);
+
+    // m[y*w + x] = energy of the cheapest seam from the top row down to pixel (y, x).
     std::vector<double> m(e.v.size());
 
+    // Top row: a seam that starts here has only this pixel's energy so far.
     for (int x = 0; x < w; ++x) m[x] = e(0, x);
+
+    // Every other row: own energy + the cheapest of the 3 neighbours above
+    // (up-left, up, up-right), skipping neighbours outside the image.
     for (int y = 1; y < h; ++y) {
         for (int x = 0; x < w; ++x) {
             double best = m[static_cast<size_t>(y - 1) * w + x];
@@ -37,11 +43,15 @@ bool findSeamOriginal(const Image& img, Seam& seam, std::string& error) {
         }
     }
 
+    // The cheapest complete seam ends at the smallest value in the bottom row.
     seam.assign(h, 0);
     int x = 0;
     for (int i = 1; i < w; ++i)
         if (m[static_cast<size_t>(h - 1) * w + i] < m[static_cast<size_t>(h - 1) * w + x]) x = i;
     seam[h - 1] = x;
+
+    // Backtrack: walk up one row at a time, moving to whichever of the 3
+    // neighbours above has the smallest m. That is the path the seam came from.
     for (int y = h - 2; y >= 0; --y) {
         int bx = x;
         double best = m[static_cast<size_t>(y) * w + x];
@@ -53,10 +63,12 @@ bool findSeamOriginal(const Image& img, Seam& seam, std::string& error) {
     return true;
 }
 
+// Builds the narrower image row by row: copy the pixels left of the seam pixel,
+// skip the seam pixel, then copy the pixels to its right.
 Image removeSeam(const Image& img, const Seam& seam) {
     const int w = img.w, h = img.h;
     std::vector<uint8_t> out;
-    out.reserve(static_cast<size_t>(w - 1) * h * 3);
+    out.reserve(static_cast<size_t>(w - 1) * h * 3);  // 3 bytes (R, G, B) per pixel
     for (int y = 0; y < h; ++y) {
         const uint8_t* row = img.at(y, 0);
         out.insert(out.end(), row, row + static_cast<size_t>(seam[y]) * 3);
@@ -77,6 +89,9 @@ bool carve(const Image& img, SeamFinder finder, int count,
         ~Guard() { carveGeneration = -1; }
     } guard;
 
+    // Find a seam, remove it, repeat. The energy map is recomputed inside the
+    // finder each time, because removing a seam changes the neighbours of the
+    // pixels next to it.
     Image cur = img;
     seams.clear();
     for (int i = 0; i < count; ++i) {

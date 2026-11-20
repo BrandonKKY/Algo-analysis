@@ -3,10 +3,10 @@
 
 // Dynamic programming seam finder
 // Using sobelEnergy(), convert the image into an energy map e
-// Using a recurring function, accumulate the costs of each seam from top to bottom pixel by pixel
-// based on the energy map. Simultaneously, store the respective costs for each pixel in a cost map M
-// After calculating the cumulative costs, work backwards up from the bottom to then remove the 
-// cheapest pixel in each row one by one
+// Using a recurrence (filled in with loops, not recursion), accumulate the costs of each seam from
+// top to bottom pixel by pixel based on the energy map, storing the cost for each pixel in a cost map M
+// After calculating the cumulative costs, start at the cheapest pixel in the bottom row and walk back
+// up, each time moving to the cheapest of the three neighbours above. That path is the seam to remove
 bool findSeamDp(const Image& img, Seam& seam, std::string& error) {
     // Get the energy map for the image
     const int w = img.w, h = img.h;
@@ -17,7 +17,7 @@ bool findSeamDp(const Image& img, Seam& seam, std::string& error) {
     // Fill cumulative-cost table M
     // M(y, x) = cost of the cheapest seam running down from top to bottom pixel
     // Starting from the top row pixel, M(0, x) = e(0, x)
-    // Get the cost of the next cheapest neighboring pixel next rown down and add it to the current cost
+    // For each pixel, take the cheapest of its three neighbours in the row above and add its own energy
     // M(y, x) = e(y, x) + min( M(y-1, x-1), M(y-1, x), M(y-1, x+1) ) 
     // Skip any neighbour that falls outside the image: there's no x-1 when x == 0, and no x+1 when x == w-1.
     Grid<double> M(w,h);
@@ -44,7 +44,7 @@ bool findSeamDp(const Image& img, Seam& seam, std::string& error) {
         }
     }
     // The cheapest full seam ends at the smallest value in the bottom row
-    // So start from the first in the bottom row
+    // So scan the bottom row for it, starting from the first pixel
     seam.assign(h,0);
     int x = 0;
     for(int i = 1; i < w; ++i)
