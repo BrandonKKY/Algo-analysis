@@ -1,0 +1,38 @@
+Test log for Team T20 seam carving (make test), generated 2026-11-20 19:16 +08
+Machine: Intel(R) Core(TM) i7-14700HX, WSL2 Ubuntu, g++ (Ubuntu 13.3.0-6ubuntu2~24.04.1) 13.3.0, -O2
+
+===== tests/test_greedy.cpp =====
+997/997 checks passed
+
+===== tests/test_graphcut.cpp =====
+[1] single-seam cost equals DP on random images
+  600 images checked
+[2] edge-case shapes
+[3] carving many seams in a row (cost checked at every step)
+[4] horizontal seams (transposed image)
+  300 images checked
+[5] running time, one vertical seam (ms)
+  image        kind             DP   graphcut    ratio
+  64x40        smooth         0.04       1.23      35x
+  64x40        noise          0.03      68.21    2009x
+  100x75       smooth         0.13       4.04      32x
+  100x75       noise          0.10    1061.10   10982x
+  200x150      smooth         0.66      16.07      24x
+  200x150      noise          0.37   21333.22   57219x
+
+All checks passed
+
+===== tests/test_dynamicprogramming.cpp =====
+[1] cost equals brute force on tiny images
+  300 images checked
+[2] matches findSeamOriginal and beats greedy on random images
+  600 images checked
+[3] edge-case shapes
+[4] carving many seams in a row (checked at every step)
+[5] running time, one vertical seam (ms)
+  image              dp   original     greedy
+  100x75           0.11       0.10       0.08
+  400x300          2.92       2.83       2.53
+  800x600         12.28      11.94      10.66
+
+All checks passed

@@ -1,0 +1,9 @@
+tag,input,input_size,output_size,seams_removed,method,total_energy_removed,ms_per_seam,total_find_ms
+sample,images/sample.png,64x40,44x40,20,dp,22315.4,0.0401184,0.802369
+sample,images/sample.png,64x40,44x40,20,greedy,22315.4,0.0267082,0.534163
+sample,images/sample.png,64x40,44x40,20,graphcut,22315.4,4.84118,96.8236
+strawberry400,images/images.jpg,400x218,280x218,120,dp,361706,1.32251,158.701
+strawberry400,images/images.jpg,400x218,280x218,120,greedy,509122,1.02476,122.971
+strawberry100,images/images.jpg,100x55,70x55,30,dp,63678.6,0.0612267,1.8368
+strawberry100,images/images.jpg,100x55,70x55,30,greedy,81153.5,0.0508181,1.52454
+strawberry100,images/images.jpg,100x55,70x55,30,graphcut,63678.6,334.796,10043.9
